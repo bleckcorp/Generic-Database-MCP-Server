@@ -98,17 +98,3 @@ This configuration exposes tools like:
 - `pg_list_tables`
 - `pg_sql_query`
 
-## Version Control
-
-A `.gitignore` file is included to ensure that sensitive files and build artifacts are not committed to your repository.
-
-**Do NOT commit:**
-- `.env`: Contains your database credentials.
-- `node_modules/`: Dependencies.
-- `build/`: Compiled JavaScript output.
-
-**Do commit:**
-- `src/`: Source code.
-- `package.json` & `package-lock.json`: Dependency manifests.
-- `tsconfig.json`: TypeScript configuration.
-- `README.md`: Documentation.
