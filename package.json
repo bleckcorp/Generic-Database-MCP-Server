@@ -1,0 +1,30 @@
+{
+  "name": "mcpservermssql",
+  "version": "1.0.0",
+  "main": "build/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.3",
+    "@types/node": "^25.1.0",
+    "dotenv": "^16.4.5",
+    "mssql": "^12.2.0",
+    "mysql2": "^3.16.2",
+    "pg": "^8.17.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/mssql": "^9.1.9",
+    "@types/pg": "^8.16.0"
+  }
+}
