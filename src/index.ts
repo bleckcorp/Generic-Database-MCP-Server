@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
+import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
     CallToolRequestSchema,
     ListToolsRequestSchema,
@@ -14,18 +16,9 @@ import { DatabaseConfig } from "./db/interfaces.js";
 dotenv.config();
 
 const TOOL_PREFIX = process.env.TOOL_PREFIX || "";
-
-const server = new Server(
-    {
-        name: "mcp-server-db", // Renamed since it's generic now
-        version: "1.0.0",
-    },
-    {
-        capabilities: {
-            tools: {},
-        },
-    }
-);
+const TRANSPORT = process.env.TRANSPORT || "http";
+const HOST = process.env.HOST || "0.0.0.0";
+const PORT = parseInt(process.env.PORT || "3000", 10);
 
 // Database configuration
 const getDbConfig = (): { type: DbType; config: DatabaseConfig } => {
@@ -56,7 +49,6 @@ const getDbConfig = (): { type: DbType; config: DatabaseConfig } => {
 const { type, config } = getDbConfig();
 const db = getDbAdapter(type, config);
 
-// Helper for read-only check
 function isReadOnly(query: string): boolean {
     const forbiddenKeywords = [
         /\bUPDATE\b/i,
@@ -83,108 +75,199 @@ function isReadOnly(query: string): boolean {
     return true;
 }
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-        tools: [
-            {
-                name: `${TOOL_PREFIX}list_tables`,
-                description: "List all tables in the database",
-                inputSchema: {
-                    type: "object",
-                    properties: {},
-                },
+function createServer(): Server {
+    const server = new Server(
+        {
+            name: "mcp-server-db",
+            version: "1.0.0",
+        },
+        {
+            capabilities: {
+                tools: {},
             },
-            {
-                name: `${TOOL_PREFIX}describe_table`,
-                description: "Get the schema information for a specific table",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        tableName: {
-                            type: "string",
-                            description: "The name of the table to describe",
-                        },
-                    },
-                    required: ["tableName"],
-                },
-            },
-            {
-                name: `${TOOL_PREFIX}sql_query`,
-                description: "Execute a read-only SQL query against the database",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        query: {
-                            type: "string",
-                            description: "The SQL query to execute (must be SELECT-only)",
-                        },
-                    },
-                    required: ["query"],
-                },
-            },
-        ],
-    };
-});
-
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-
-    try {
-        if (name === `${TOOL_PREFIX}list_tables`) {
-            const tables = await db.listTables();
-            return {
-                content: [
-                    {
-                        type: "text",
-                        text: JSON.stringify(tables, null, 2),
-                    },
-                ],
-            };
         }
+    );
 
-        if (name === `${TOOL_PREFIX}describe_table`) {
-            const { tableName } = args as { tableName: string };
-            const columns = await db.describeTable(tableName);
-            return {
-                content: [
-                    {
-                        type: "text",
-                        text: JSON.stringify(columns, null, 2)
-                    }
-                ]
-            }
-        }
-
-        if (name === `${TOOL_PREFIX}sql_query`) {
-            const { query } = args as { query: string };
-            if (!isReadOnly(query)) {
-                throw new Error("Only read-only queries (SELECT) are allowed.");
-            }
-
-            const result = await db.query(query);
-            return {
-                content: [
-                    {
-                        type: "text",
-                        text: JSON.stringify(result, null, 2),
-                    },
-                ],
-            };
-        }
-
-        throw new Error(`Unknown tool: ${name}`);
-    } catch (error) {
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
         return {
-            content: [
+            tools: [
                 {
-                    type: "text",
-                    text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+                    name: `${TOOL_PREFIX}list_tables`,
+                    description: "List all tables in the database",
+                    inputSchema: {
+                        type: "object",
+                        properties: {},
+                    },
+                },
+                {
+                    name: `${TOOL_PREFIX}describe_table`,
+                    description: "Get the schema information for a specific table",
+                    inputSchema: {
+                        type: "object",
+                        properties: {
+                            tableName: {
+                                type: "string",
+                                description: "The name of the table to describe",
+                            },
+                        },
+                        required: ["tableName"],
+                    },
+                },
+                {
+                    name: `${TOOL_PREFIX}sql_query`,
+                    description: "Execute a read-only SQL query against the database",
+                    inputSchema: {
+                        type: "object",
+                        properties: {
+                            query: {
+                                type: "string",
+                                description: "The SQL query to execute (must be SELECT-only)",
+                            },
+                        },
+                        required: ["query"],
+                    },
                 },
             ],
-            isError: true,
         };
-    }
-});
+    });
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+        const { name, arguments: args } = request.params;
+
+        try {
+            if (name === `${TOOL_PREFIX}list_tables`) {
+                const tables = await db.listTables();
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify(tables, null, 2),
+                        },
+                    ],
+                };
+            }
+
+            if (name === `${TOOL_PREFIX}describe_table`) {
+                const { tableName } = args as { tableName: string };
+                const columns = await db.describeTable(tableName);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify(columns, null, 2)
+                        }
+                    ]
+                };
+            }
+
+            if (name === `${TOOL_PREFIX}sql_query`) {
+                const { query } = args as { query: string };
+                if (!isReadOnly(query)) {
+                    throw new Error("Only read-only queries (SELECT) are allowed.");
+                }
+
+                const result = await db.query(query);
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify(result, null, 2),
+                        },
+                    ],
+                };
+            }
+
+            throw new Error(`Unknown tool: ${name}`);
+        } catch (error) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+                    },
+                ],
+                isError: true,
+            };
+        }
+    });
+
+    return server;
+}
+
+async function startStdioServer(): Promise<void> {
+    const server = createServer();
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+}
+
+function startHttpServer(): void {
+    const app = createMcpExpressApp({ host: HOST });
+
+    app.get("/health", (_req: unknown, res: any) => {
+        res.status(200).json({
+            status: "ok",
+            transport: "http",
+            dbType: type,
+        });
+    });
+
+    app.all("/mcp", async (req: any, res: any) => {
+        if (req.method !== "POST") {
+            res.status(405).json({
+                jsonrpc: "2.0",
+                error: {
+                    code: -32000,
+                    message: "Method not allowed.",
+                },
+                id: null,
+            });
+            return;
+        }
+
+        const server = createServer();
+        const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: undefined,
+        });
+        let closed = false;
+
+        const cleanup = async (): Promise<void> => {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            await transport.close();
+            await server.close();
+        };
+
+        res.on("close", () => {
+            void cleanup();
+        });
+
+        try {
+            await server.connect(transport);
+            await transport.handleRequest(req, res, req.body);
+        } catch (error) {
+            console.error("Error handling MCP request:", error);
+            if (!res.headersSent) {
+                res.status(500).json({
+                    jsonrpc: "2.0",
+                    error: {
+                        code: -32603,
+                        message: "Internal server error",
+                    },
+                    id: null,
+                });
+            }
+        }
+    });
+
+    app.listen(PORT, HOST, () => {
+        console.log(`MCP HTTP server listening on http://${HOST}:${PORT}/mcp`);
+    });
+}
+
+if (TRANSPORT === "stdio") {
+    await startStdioServer();
+} else {
+    startHttpServer();
+}
